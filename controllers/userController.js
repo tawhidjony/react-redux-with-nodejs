@@ -1,14 +1,47 @@
-const bcrypt = require('bcryptjs')
-const registerValidator = require('../validator/registerValidator')
-const User = require('../model/User')
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const registerValidator = require('../validator/registerValidator');
+const loginValidator = require('../validator/loginValidator');
+const User = require('../model/User');
+const {serverError, resourceError} = require('../util/error');
 
 module.exports = {
  loging(req, res){
-    let name = req.body.name
-    let email = req.body.email
-    res.json({
-        message:`welcome ${name} we will contact with you ${email}`
-    })
+    let {email, password} = req.body
+    let validate = loginValidator({email, password})
+
+    if(!validate.isValid){
+        return res.status(400).json(validate.error)
+    }
+
+    User.findOne({email})
+        .then(user => {
+            if(!user){
+                return resourceError (res,'User not Found!' )
+            }
+
+            bcrypt.compare(password, user.password, (err, result) => {
+                if(err){
+                    return serverError(res, err)
+                }
+                
+                if(!result){
+                    return resourceError(res, 'Password Dosen\'t Macth')
+                }
+
+                let token = jwt.sign({
+                    _id: user._id,
+                    name: user.name,
+                    email :user.email
+                }, 'SECRET', {expiresIn:'2h'})
+
+                res.status(200).json({
+                    message:'Login Successful',
+                    token:`Bearer ${token}`
+                })
+            });
+        })
+        .catch(error => serverError(res, error))
  },
 
  register(req, res){
@@ -16,23 +49,17 @@ module.exports = {
      let validate = registerValidator({name, email, password, confirmPassword})
 
      if(!validate.isValid){
-         res.status(400).json(validate.error)
+        return res.status(400).json(validate.error)
      }else{
         User.findOne({email})
         .then(user => {
            if(user){
-               return res.status(400).json({
-                   message:'Email Alredy Exist'
-               })
+            return resourceError (res,'Email Alredy Exist' )
            }
-
-        
 
            bcrypt.hash(password, 11, (err, hash) => {
                 if(err){
-                    return res.status(500).json({
-                        message:'server Error Occurred'
-                    })
+                    return resourceError (res,'server Error Occurred' )
                 }
 
                 let user = new User({
@@ -46,20 +73,10 @@ module.exports = {
                             user
                         })
                     })
-                    .catch(error => {
-                        console.log(error)
-                        res.status(500).json({
-                            message:'Server Error Occurred'
-                        })
-                    })
+                    .catch(error => serverError(res, error))
            }) 
         })
-        .catch(error => {
-            console.log(error)
-            res.status(500).json({
-                message:'Server Error Occurred'
-            })
-        })
+        .catch(error => serverError(res, error))
      }
  }
 
